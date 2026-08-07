@@ -1,21 +1,25 @@
 from __future__ import annotations
 
+import contextlib
 import io
 import os
 import re
+import secrets
 import time
 from datetime import datetime
+from threading import Lock
 from typing import Iterable, Literal
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
 
 from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
+from mcp.server.fastmcp import FastMCP
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "2.0.0"
 SEACE_BASE = (
     "https://prod4.seace.gob.pe:8086/api/oportunidades/"
     "codObjeto/codDepartamento/sintesisProceso/codTipoProceso"
@@ -32,11 +36,23 @@ PREFERRED_COLUMNS = [
     "descripcionItem", "item", "cubso", "moneda", "valorReferencial",
     "documentoBase", "ubigeo",
 ]
+DOWNLOAD_TTL_SECONDS = int(os.getenv("DOWNLOAD_TTL_SECONDS", "1800"))
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://seace-export-api.onrender.com").rstrip("/")
 
-app = FastAPI(
-    title="SEACE Export API",
-    version=APP_VERSION,
-    description="Consulta oportunidades SEACE y devuelve Excel filtrado por objeto y fecha.",
+# In-memory short-lived downloads. This avoids moving file bytes through ChatGPT/MCP.
+_downloads: dict[str, dict] = {}
+_downloads_lock = Lock()
+
+mcp = FastMCP(
+    "SEACE Export",
+    instructions=(
+        "Exporta oportunidades públicas del SEACE a Excel. "
+        "Usa 'servicios' para código 65 y 'obras' para código 64. "
+        "Devuelve un enlace HTTPS temporal al XLSX ya generado."
+    ),
+    stateless_http=True,
+    json_response=True,
+    streamable_http_path="/",
 )
 
 
@@ -78,7 +94,7 @@ def _fetch_json(code: str, retries: int = 3, timeout: int = 45) -> list[dict]:
     last_error: Exception | None = None
     for attempt in range(retries):
         try:
-            req = Request(url, headers={"User-Agent": "SEACE-Export-API/1.0", "Accept": "application/json"})
+            req = Request(url, headers={"User-Agent": "SEACE-Export-API/2.0", "Accept": "application/json"})
             with urlopen(req, timeout=timeout) as resp:
                 raw = resp.read()
             import json
@@ -95,7 +111,14 @@ def _fetch_json(code: str, retries: int = 3, timeout: int = 45) -> list[dict]:
     raise HTTPException(status_code=502, detail=f"No se pudo consultar SEACE: {last_error}")
 
 
-def _filter_rows(rows: list[dict], code: str, exact_dates: set[datetime], start: datetime | None, end: datetime | None) -> list[dict]:
+def _filter_rows(
+    rows: list[dict],
+    code: str,
+    exact_dates: set[datetime],
+    start: datetime | None,
+    end: datetime | None,
+) -> list[dict]:
+    exact_days = {x.date() for x in exact_dates}
     out: list[dict] = []
     for row in rows:
         if str(row.get("codObjeto", "")) != code:
@@ -104,8 +127,8 @@ def _filter_rows(rows: list[dict], code: str, exact_dates: set[datetime], start:
         if d is None:
             continue
         dn = d.date()
-        if exact_dates:
-            if dn not in {x.date() for x in exact_dates}:
+        if exact_days:
+            if dn not in exact_days:
                 continue
         elif start and end:
             if not (start.date() <= dn <= end.date()):
@@ -214,9 +237,80 @@ def _export(
     return _build_workbook(filtered, cols, meta), filename, len(source), len(filtered)
 
 
+def _cleanup_downloads() -> None:
+    now = time.time()
+    with _downloads_lock:
+        expired = [token for token, item in _downloads.items() if item["expires_at"] <= now]
+        for token in expired:
+            _downloads.pop(token, None)
+
+
+def _store_download(content: bytes, filename: str) -> str:
+    _cleanup_downloads()
+    token = secrets.token_urlsafe(24)
+    with _downloads_lock:
+        _downloads[token] = {
+            "content": content,
+            "filename": filename,
+            "expires_at": time.time() + DOWNLOAD_TTL_SECONDS,
+        }
+    return f"{PUBLIC_BASE_URL}/download/{token}"
+
+
+@mcp.tool()
+def exportar_oportunidades(
+    objeto: Literal["servicios", "obras"],
+    fechas: list[str] | None = None,
+    inicio: str | None = None,
+    fin: str | None = None,
+) -> dict:
+    """Genera un XLSX de oportunidades SEACE y devuelve un enlace HTTPS temporal.
+
+    Usa `fechas` para uno o varios días exactos (DD/MM/YYYY o YYYY-MM-DD),
+    o usa `inicio` y `fin` juntos para un rango inclusivo. No mezcles ambos modos.
+    """
+    content, filename, source_count, filtered_count = _export(objeto, fechas or [], inicio, fin)
+    url = _store_download(content, filename)
+    return {
+        "ok": True,
+        "objeto": objeto,
+        "archivo": filename,
+        "registros_descargados": source_count,
+        "registros_filtrados": filtered_count,
+        "download_url": url,
+        "expira_en_segundos": DOWNLOAD_TTL_SECONDS,
+        "instruccion": "Entrega este enlace al usuario como descarga del archivo Excel.",
+    }
+
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with mcp.session_manager.run():
+        yield
+
+
+app = FastAPI(
+    title="SEACE Export API",
+    version=APP_VERSION,
+    description="Consulta oportunidades SEACE y devuelve Excel filtrado por objeto y fecha.",
+    lifespan=lifespan,
+)
+
+
+@app.get("/")
+def root():
+    return {
+        "ok": True,
+        "service": "SEACE Export API",
+        "version": APP_VERSION,
+        "health": "/health",
+        "mcp": "/mcp",
+    }
+
+
 @app.get("/health")
 def health():
-    return {"ok": True, "version": APP_VERSION}
+    return {"ok": True, "version": APP_VERSION, "mcp": "/mcp"}
 
 
 @app.get("/v1/export")
@@ -239,3 +333,22 @@ def export_get(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers=headers,
     )
+
+
+@app.get("/download/{token}")
+def download_generated(token: str):
+    _cleanup_downloads()
+    with _downloads_lock:
+        item = _downloads.get(token)
+    if not item:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado o enlace expirado")
+    headers = {"Content-Disposition": f'attachment; filename="{item["filename"]}"'}
+    return Response(
+        content=item["content"],
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
+
+# Streamable HTTP MCP endpoint at exactly /mcp
+app.mount("/mcp", mcp.streamable_http_app())
