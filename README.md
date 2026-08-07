@@ -1,52 +1,34 @@
-# SEACE Export API
+# SEACE Export API + MCP
 
-Servicio API-first para generar Excel de oportunidades SEACE sin Browserless en operación normal.
+Servicio para exportar oportunidades públicas del SEACE a Excel y exponer una herramienta MCP para ChatGPT.
 
-## Rutas
+## Endpoints
 
-- `GET /health`
-- `GET /v1/export`
+- `GET /health` — estado del servicio.
+- `GET /v1/export` — descarga directa por HTTP.
+- `POST /mcp` — endpoint MCP Streamable HTTP para ChatGPT.
+- `GET /download/{token}` — descarga temporal de un XLSX ya generado por la herramienta MCP.
 
-### Ejemplos
+## Herramienta MCP
 
-Una fecha exacta:
+`exportar_oportunidades`
 
-```text
-/v1/export?object=servicios&dates=05/08/2026
-```
+Parámetros:
 
-Dos fechas exactas:
+- `objeto`: `servicios` u `obras`.
+- `fechas`: lista de fechas exactas (`DD/MM/YYYY` o `YYYY-MM-DD`).
+- `inicio`, `fin`: rango inclusivo; usar ambos y no combinarlos con `fechas`.
 
-```text
-/v1/export?object=servicios&dates=03/08/2026&dates=04/08/2026
-```
+La herramienta consulta SEACE una sola vez, genera el XLSX en el servidor y devuelve un enlace HTTPS temporal. El archivo no se transfiere a través del contenido MCP ni del chat.
 
-Rango inclusivo:
+## URL en Render
 
-```text
-/v1/export?object=obras&start=03/08/2026&end=05/08/2026
-```
+MCP: `https://seace-export-api.onrender.com/mcp`
 
-Si `SEACE_EXPORT_API_KEY` está configurada, enviar cabecera `X-API-Key`.
+## Prueba HTTP
 
-## Desarrollo local
+`/v1/export?object=servicios&dates=05/08/2026`
 
-```bash
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8080
-```
+## Seguridad
 
-## Docker
-
-```bash
-docker build -t seace-export-api .
-docker run --rm -p 8080:8080 -e SEACE_EXPORT_API_KEY=CAMBIAR seace-export-api
-```
-
-## Despliegue sugerido
-
-El archivo `render.yaml` permite desplegar en Render. También puede desplegarse el mismo `Dockerfile` en Railway, Cloud Run, Azure Container Apps u otro servicio compatible.
-
-## Integración con el Agente
-
-El objetivo final es que el Agente haga una sola llamada a `/v1/export`, reciba el archivo y lo entregue. Browserless queda fuera del camino normal y solo se conserva para diagnóstico si SEACE cambia el backend.
+Durante la validación inicial el MCP está sin autenticación. Después de confirmar la integración con ChatGPT, añadir autenticación del conector antes de usarlo como servicio de producción.
