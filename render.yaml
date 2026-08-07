@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: seace-export-api
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: SEACE_EXPORT_API_KEY
+        generateValue: true

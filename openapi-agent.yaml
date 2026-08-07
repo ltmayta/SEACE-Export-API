@@ -1,0 +1,42 @@
+openapi: 3.1.0
+info:
+  title: SEACE Export API
+  version: 1.0.0
+servers:
+  - url: https://REEMPLAZAR-CON-TU-DOMINIO
+paths:
+  /v1/export:
+    get:
+      operationId: exportSeaceOpportunities
+      summary: Genera Excel de oportunidades SEACE
+      parameters:
+        - in: query
+          name: object
+          required: true
+          schema:
+            type: string
+            enum: [servicios, obras]
+        - in: query
+          name: dates
+          required: false
+          schema:
+            type: array
+            items: {type: string}
+          style: form
+          explode: true
+        - in: query
+          name: start
+          required: false
+          schema: {type: string}
+        - in: query
+          name: end
+          required: false
+          schema: {type: string}
+      responses:
+        '200':
+          description: Archivo Excel generado
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
