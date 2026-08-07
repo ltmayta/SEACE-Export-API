@@ -2,8 +2,10 @@ services:
   - type: web
     name: seace-export-api
     runtime: docker
-    plan: starter
+    plan: free
     healthCheckPath: /health
     envVars:
-      - key: SEACE_EXPORT_API_KEY
-        generateValue: true
+      - key: PUBLIC_BASE_URL
+        value: https://seace-export-api.onrender.com
+      - key: DOWNLOAD_TTL_SECONDS
+        value: "1800"
