@@ -14,12 +14,13 @@ from urllib.request import Request, urlopen
 
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "2.0.0"
+APP_VERSION = "3.0.0"
 SEACE_BASE = (
     "https://prod4.seace.gob.pe:8086/api/oportunidades/"
     "codObjeto/codDepartamento/sintesisProceso/codTipoProceso"
@@ -43,16 +44,32 @@ PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://seace-export-api.onrende
 _downloads: dict[str, dict] = {}
 _downloads_lock = Lock()
 
-mcp = FastMCP(
+mcp = MCPServer(
     "SEACE Export",
+    description="Exporta oportunidades públicas del SEACE a Excel.",
     instructions=(
-        "Exporta oportunidades públicas del SEACE a Excel. "
-        "Usa 'servicios' para código 65 y 'obras' para código 64. "
-        "Devuelve un enlace HTTPS temporal al XLSX ya generado."
+        "Usa el objeto servicios para código 65 y obras para código 64. "
+        "Acepta fechas exactas o un rango inclusivo y devuelve un enlace HTTPS "
+        "temporal al archivo XLSX ya generado."
     ),
-    stateless_http=True,
-    json_response=True,
-    streamable_http_path="/",
+    version=APP_VERSION,
+)
+
+# MCP SDK v2 protege por defecto contra DNS rebinding y solo acepta localhost.
+# En Render hay que declarar explícitamente el host público.
+_mcp_security = TransportSecuritySettings(
+    allowed_hosts=[
+        "seace-export-api.onrender.com",
+        "seace-export-api.onrender.com:*",
+        "localhost",
+        "localhost:*",
+        "127.0.0.1",
+        "127.0.0.1:*",
+    ],
+    allowed_origins=[
+        "https://chatgpt.com",
+        "https://chat.openai.com",
+    ],
 )
 
 
@@ -283,6 +300,16 @@ def exportar_oportunidades(
     }
 
 
+# Construir primero la sub-app MCP. Al montarla dentro de FastAPI, la sub-app
+# no ejecuta su propio lifespan; por eso el lifespan superior inicia el manager.
+_mcp_app = mcp.streamable_http_app(
+    streamable_http_path="/mcp",
+    stateless_http=True,
+    json_response=True,
+    transport_security=_mcp_security,
+)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     async with mcp.session_manager.run():
@@ -350,5 +377,6 @@ def download_generated(token: str):
     )
 
 
-# Streamable HTTP MCP endpoint at exactly /mcp
-app.mount("/mcp", mcp.streamable_http_app())
+# Montar al final para que las rutas REST anteriores tengan prioridad.
+# La sub-app expone /mcp, por lo que el endpoint público queda exactamente /mcp.
+app.mount("/", _mcp_app)
