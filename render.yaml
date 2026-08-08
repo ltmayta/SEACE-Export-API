@@ -8,4 +8,14 @@ services:
       - key: PUBLIC_BASE_URL
         value: https://seace-export-api.onrender.com
       - key: DOWNLOAD_TTL_SECONDS
-        value: "1800"
+        value: "600"
+      - key: MAX_EXACT_DATES
+        value: "31"
+      - key: MAX_RANGE_DAYS
+        value: "31"
+      - key: MAX_FILTERED_ROWS
+        value: "5000"
+      - key: EXPORTS_PER_MINUTE
+        value: "12"
+      - key: ENABLE_DIRECT_EXPORT
+        value: "0"
