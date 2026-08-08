@@ -1,34 +1,45 @@
-# SEACE Export API + MCP
+# API de exportación SEACE + MCP v3
 
-Servicio para exportar oportunidades públicas del SEACE a Excel y exponer una herramienta MCP para ChatGPT.
+Servicio para exportar oportunidades públicas del SEACE a Excel y exponer una herramienta MCP remota para ChatGPT.
 
 ## Endpoints
 
 - `GET /health` — estado del servicio.
-- `GET /v1/export` — descarga directa por HTTP.
-- `POST /mcp` — endpoint MCP Streamable HTTP para ChatGPT.
-- `GET /download/{token}` — descarga temporal de un XLSX ya generado por la herramienta MCP.
+- `GET /v1/export` — descarga directa de Excel por HTTP.
+- `/mcp` — endpoint MCP Streamable HTTP.
+- `GET /download/{token}` — descarga temporal del Excel generado por la herramienta MCP.
 
 ## Herramienta MCP
 
-`exportar_oportunidades`
+`exportar_oportunidades` acepta:
 
-Parámetros:
+- `objeto`: `servicios` o `obras`.
+- `fechas`: lista de fechas exactas `DD/MM/YYYY` o `YYYY-MM-DD`.
+- `inicio` y `fin`: rango inclusivo alternativo a `fechas`.
 
-- `objeto`: `servicios` u `obras`.
-- `fechas`: lista de fechas exactas (`DD/MM/YYYY` o `YYYY-MM-DD`).
-- `inicio`, `fin`: rango inclusivo; usar ambos y no combinarlos con `fechas`.
+La herramienta consulta SEACE, genera el XLSX en el servidor y devuelve un enlace HTTPS temporal.
 
-La herramienta consulta SEACE una sola vez, genera el XLSX en el servidor y devuelve un enlace HTTPS temporal. El archivo no se transfiere a través del contenido MCP ni del chat.
+## Códigos SEACE verificados
 
-## URL en Render
+- Servicios: `65`
+- Obras: `64`
 
-MCP: `https://seace-export-api.onrender.com/mcp`
+## MCP SDK
 
-## Prueba HTTP
+Esta versión fija `mcp[cli]==2.0.0b2` y usa la API v2 `MCPServer`. El host público de Render está incluido explícitamente en `TransportSecuritySettings`, requisito del transporte Streamable HTTP para despliegues remotos.
 
-`/v1/export?object=servicios&dates=05/08/2026`
+## Render
 
-## Seguridad
+El `Dockerfile` inicia `uvicorn app.main:app`. `render.yaml` configura `/health` como health check.
 
-Durante la validación inicial el MCP está sin autenticación. Después de confirmar la integración con ChatGPT, añadir autenticación del conector antes de usarlo como servicio de producción.
+Después del despliegue, verifica primero:
+
+```text
+https://seace-export-api.onrender.com/health
+```
+
+Luego registra como URL MCP:
+
+```text
+https://seace-export-api.onrender.com/mcp
+```
