@@ -61,3 +61,7 @@ La URL MCP para ChatGPT sigue siendo:
 ```text
 https://seace-export-api.onrender.com/mcp
 ```
+
+
+## Nota v4.1
+La herramienta MCP devuelve metadatos como JSON textual (`structured_output=False`) para mantener compatibilidad con `mcp[cli]==2.0.0b2` y evitar `InvalidSignature` al registrar un retorno `dict`.
