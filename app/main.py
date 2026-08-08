@@ -24,7 +24,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "4.0.0"
+APP_VERSION = "4.1.0"
 SEACE_BASE = (
     "https://prod4.seace.gob.pe:8086/api/oportunidades/"
     "codObjeto/codDepartamento/sintesisProceso/codTipoProceso"
@@ -370,18 +370,18 @@ def _store_download(content: bytes, filename: str) -> str:
         "o inicio y fin para un rango inclusivo. No acepta URLs, consultas libres, código, "
         "comandos ni otros orígenes de datos."
     ),
-    structured_output=True,
+    structured_output=False,
 )
 def exportar_oportunidades(
     objeto: Literal["servicios", "obras"],
     fechas: list[str] | None = None,
     inicio: str | None = None,
     fin: str | None = None,
-) -> dict:
-    """Generar un XLSX seguro y devolver solo metadatos y un enlace temporal de un solo uso."""
+) -> str:
+    """Generar un XLSX seguro y devolver metadatos JSON como texto MCP."""
     content, filename, source_count, filtered_count = _export(objeto, fechas or [], inicio, fin)
     url = _store_download(content, filename)
-    return {
+    payload = {
         "ok": True,
         "objeto": objeto,
         "archivo": filename,
@@ -391,6 +391,7 @@ def exportar_oportunidades(
         "expira_en_segundos": DOWNLOAD_TTL_SECONDS,
         "single_use": True,
     }
+    return json.dumps(payload, ensure_ascii=False)
 
 
 _mcp_app = mcp.streamable_http_app(
