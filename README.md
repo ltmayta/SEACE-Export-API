@@ -1,44 +1,62 @@
-# API de exportación SEACE + MCP v3
+# API de exportación SEACE + MCP v4 endurecida
 
-Servicio para exportar oportunidades públicas del SEACE a Excel y exponer una herramienta MCP remota para ChatGPT.
+Servicio de propósito único para exportar oportunidades públicas del SEACE a Excel y exponer una sola herramienta MCP a ChatGPT.
 
-## Endpoints
+## Superficie permitida
 
 - `GET /health` — estado del servicio.
-- `GET /v1/export` — descarga directa de Excel por HTTP.
-- `/mcp` — endpoint MCP Streamable HTTP.
-- `GET /download/{token}` — descarga temporal del Excel generado por la herramienta MCP.
+- `GET /security` — resumen público de controles de seguridad.
+- `/mcp` — MCP Streamable HTTP.
+- `GET /download/{token}` — descarga temporal, aleatoria y de un solo uso.
+- `GET /v1/export` — deshabilitado por defecto. Solo se habilita con `ENABLE_DIRECT_EXPORT=1` y una `SEACE_EXPORT_API_KEY` configurada.
 
-## Herramienta MCP
+## Única herramienta MCP
 
-`exportar_oportunidades` acepta:
+`exportar_oportunidades`
 
-- `objeto`: `servicios` o `obras`.
-- `fechas`: lista de fechas exactas `DD/MM/YYYY` o `YYYY-MM-DD`.
-- `inicio` y `fin`: rango inclusivo alternativo a `fechas`.
+Parámetros:
 
-La herramienta consulta SEACE, genera el XLSX en el servidor y devuelve un enlace HTTPS temporal.
+- `objeto`: solo `servicios` o `obras`.
+- `fechas`: uno o varios días exactos (`DD/MM/YYYY` o `YYYY-MM-DD`).
+- `inicio` + `fin`: rango inclusivo alternativo a `fechas`.
 
-## Códigos SEACE verificados
+No acepta URLs, código, comandos, SQL, prompts libres, credenciales ni otros orígenes de datos.
 
-- Servicios: `65`
-- Obras: `64`
+## Controles v4
 
-## MCP SDK
+- Endpoint SEACE hardcodeado y allowlist de códigos 64/65.
+- Máximo 31 fechas exactas o rango de 31 días.
+- Límites de tamaño de respuesta, filas de origen y filas exportadas.
+- Límite de exportaciones por minuto.
+- Descargas de un solo uso y TTL de 10 minutos.
+- Fórmulas de Excel provenientes de datos públicos se neutralizan para evitar formula injection.
+- No se devuelven filas SEACE al modelo; MCP devuelve solo conteos, nombre de archivo y URL temporal.
+- No se exponen docs/OpenAPI públicos en producción.
+- Exportación REST directa deshabilitada por defecto.
+- No hay escritura en SEACE ni en sistemas internos.
 
-Esta versión fija `mcp[cli]==2.0.0b2` y usa la API v2 `MCPServer`. El host público de Render está incluido explícitamente en `TransportSecuritySettings`, requisito del transporte Streamable HTTP para despliegues remotos.
+## Importante sobre el aviso de ChatGPT
 
-## Render
+ChatGPT seguirá mostrando advertencias para apps MCP personalizadas no verificadas. Este endurecimiento reduce la superficie real de riesgo, pero no elimina la etiqueta genérica de riesgo porque OpenAI no revisa automáticamente cada app personalizada del workspace.
 
-El `Dockerfile` inicia `uvicorn app.main:app`. `render.yaml` configura `/health` como health check.
+## Despliegue en Render
 
-Después del despliegue, verifica primero:
+Reemplazar en el repositorio:
+
+- `app/main.py`
+- `requirements.txt`
+- `render.yaml`
+- `README.md`
+
+Render debe desplegar automáticamente el commit. Verificar después:
 
 ```text
 https://seace-export-api.onrender.com/health
+https://seace-export-api.onrender.com/security
+https://seace-export-api.onrender.com/mcp
 ```
 
-Luego registra como URL MCP:
+La URL MCP para ChatGPT sigue siendo:
 
 ```text
 https://seace-export-api.onrender.com/mcp
